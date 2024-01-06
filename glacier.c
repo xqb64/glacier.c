@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <getopt.h>
+
+#define TABLE_MAX 4
 
 static uint8_t nord_frost[4][3] = {
     {143, 188, 187},
@@ -35,39 +38,113 @@ static uint8_t nord_aurora[5][3] = {
     {180, 142, 173}
 };
 
+struct Scheme {
+    uint8_t (*palette)[3]; 
+    int num_colors;
+};
+
+struct Bucket {
+    char *key;
+    struct Scheme value;
+    struct Bucket *next;
+};
+
+struct Table {
+    struct Bucket *data[4];
+};
+
+uint32_t hash(const char *key, int length) {
+  uint32_t hash = 2166136261u;
+  for (int i = 0; i < length; i++) {
+    hash ^= (uint8_t)key[i];
+    hash *= 16777619;
+  }
+  return hash;
+}
+
+struct Scheme *list_find(struct Bucket *bucket, char *key) {
+    struct Bucket *current = bucket;
+    while (current != NULL) {
+        if (strcmp(current->key, key) == 0)
+            return &current->value;
+        current = current->next;
+    }
+    return NULL;
+}
+
+void list_insert(struct Bucket **bucket, char *key, struct Scheme value) {
+    struct Bucket *new_node = malloc(sizeof(struct Bucket));
+    new_node->key = key;
+    new_node->value = value; 
+    new_node->next = NULL;
+
+    if (!*bucket)
+        *bucket = new_node;
+    else {
+        struct Bucket *current = *bucket;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+
+        current->next = new_node;
+    }
+}
+
+void table_insert(struct Table *table, char *key, struct Scheme value) {
+    uint32_t index = hash(key, strlen(key)) % TABLE_MAX;
+    list_insert(&table->data[index], key, value);
+}
+
+struct Scheme *table_get(struct Table *table, char *key) {
+    uint32_t index = hash(key, strlen(key)) % TABLE_MAX;
+    return list_find(table->data[index], key);
+}
+
+void table_free(struct Table *table) {
+    for (size_t i = 0; i < TABLE_MAX; i++) {
+        free(table->data[i]);
+    }
+}
+
 int main(int argc, char **argv) {
+    struct Table schemes = {0};
+    table_insert(&schemes, "frost", (struct Scheme){.palette = nord_frost, .num_colors = 4});
+    table_insert(&schemes, "polar_night", (struct Scheme){.palette = nord_polar_night, .num_colors = 4});
+    table_insert(&schemes, "snow_storm", (struct Scheme){.palette = nord_snow_storm, .num_colors = 3});
+    table_insert(&schemes, "aurora", (struct Scheme){.palette = nord_aurora, .num_colors = 5});
+
+    char *in_file = argv[1];
+
+    int opt, colors_used = 0;
+    char *out_file = NULL;
+    uint8_t palette[16][3] = {0};
+    while ((opt = getopt(argc, argv, "s:o:")) != -1) {
+        switch (opt) {
+        case 's': {
+            struct Scheme *scheme = table_get(&schemes, optarg);
+            if (!scheme) {
+                fprintf(stderr, "no scheme %s\n", optarg);
+                return 1;
+            }
+            memcpy(palette + colors_used, scheme->palette, scheme->num_colors * sizeof(*scheme->palette));
+            colors_used += scheme->num_colors;
+            break;
+        }
+        case 'o': {
+            out_file = optarg;
+            break;
+        }
+        default:
+            fprintf(stderr, "no option %s\n", optarg);
+            return 1;
+        }
+    }
+
     int width, height, bpp;
-    
-    uint8_t *img = stbi_load(argv[1], &width, &height, &bpp, 3);
+    uint8_t *img = stbi_load(in_file, &width, &height, &bpp, 3);
     if (!img) {
         fprintf(stderr, "glacier: couldn't load the image\n");
         return 1;
-    }
-
-    char *schemes = argv[2];
-
-    uint8_t palette[16][3] = {0};
-
-    unsigned colors_used = 0;
-
-    if (strstr(schemes, "frost")) {
-        memcpy(palette + colors_used, nord_frost, sizeof(nord_frost));
-        colors_used += 4;
-    }
-    
-    if (strstr(schemes, "polar_night")) {
-        memcpy(palette + colors_used, nord_polar_night, sizeof(nord_polar_night));
-        colors_used += 4;
-    }
-
-    if (strstr(schemes, "snow_storm")) {
-        memcpy(palette + colors_used, nord_snow_storm, sizeof(nord_snow_storm));
-        colors_used += 3;
-    }
-    
-    if (strstr(schemes, "aurora")) {
-        memcpy(palette + colors_used, nord_aurora, sizeof(nord_aurora));
-        colors_used += 5;
     }
 
     // For each of the (r,g,b) values in the image
@@ -97,8 +174,7 @@ int main(int argc, char **argv) {
     }
 
     // Write the image to file
-    const char *filename = "out.png";
-    int success = stbi_write_png(filename, width, height, 3, img, width * 3);
+    int success = stbi_write_png(out_file, width, height, 3, img, width * 3);
     if (!success) {
         fprintf(stderr, "glacier: error while writing the image\n");
         return 1;
@@ -106,6 +182,9 @@ int main(int argc, char **argv) {
 
     // Free the image
     stbi_image_free(img);
+
+    // Free the table
+    table_free(&schemes);
 
     return 0;
 }
