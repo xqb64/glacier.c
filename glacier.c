@@ -55,17 +55,17 @@ int main(int argc, char **argv) {
         colors_used += 4;
     }
     
-    if (strstr(schemes, "polar_night") != NULL) {
+    if (strstr(schemes, "polar_night")) {
         memcpy(palette + colors_used, nord_polar_night, sizeof(nord_polar_night));
         colors_used += 4;
     }
 
-    if (strstr(schemes, "snow_storm") != NULL) {
+    if (strstr(schemes, "snow_storm")) {
         memcpy(palette + colors_used, nord_snow_storm, sizeof(nord_snow_storm));
         colors_used += 3;
     }
     
-    if (strstr(schemes, "aurora") != NULL) {
+    if (strstr(schemes, "aurora")) {
         memcpy(palette + colors_used, nord_aurora, sizeof(nord_aurora));
         colors_used += 5;
     }
